@@ -1,0 +1,100 @@
+package com.example.taskmanager.exception;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Manejador centralizado de excepciones para toda la API.
+ *
+ * @RestControllerAdvice combina:
+ *   - @ControllerAdvice → intercepta excepciones de todos los controllers.
+ *   - @ResponseBody     → serializa el retorno a JSON.
+ *
+ * Cada método @ExceptionHandler define cómo convertir una excepción
+ * específica en una ResponseEntity (status + body).
+ */
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    /**
+     * Maneja TaskNotFoundException → HTTP 404.
+     * Se lanza cuando el cliente pide una tarea que no existe.
+     */
+    @ExceptionHandler(TaskNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNotFound(TaskNotFoundException ex) {
+        return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
+    /**
+     * Maneja IllegalArgumentException → HTTP 400.
+     * Se lanza cuando el servicio recibe datos inválidos.
+     */
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<Map<String, Object>> handleBadRequest(IllegalArgumentException ex) {
+        return buildResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    /**
+     * Maneja MethodArgumentNotValidException → HTTP 400.
+     * Se lanza automáticamente cuando @Valid falla en el controller.
+     * Ejemplo: el cliente envía {"title": ""} → @NotBlank falla.
+     *
+     * Este handler extrae los mensajes de cada campo inválido
+     * y los devuelve en un mapa para que el cliente sepa qué corregir.
+     */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, Object>> handleValidationErrors(
+            MethodArgumentNotValidException ex) {
+
+        Map<String, String> fieldErrors = new HashMap<>();
+        for (FieldError error : ex.getBindingResult().getFieldErrors()) {
+            fieldErrors.put(error.getField(), error.getDefaultMessage());
+        }
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("timestamp", LocalDateTime.now());
+        body.put("status", HttpStatus.BAD_REQUEST.value());
+        body.put("error", HttpStatus.BAD_REQUEST.getReasonPhrase());
+        body.put("message", "Error de validación en los datos enviados");
+        body.put("fields", fieldErrors);
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+
+    /**
+     * Maneja cualquier excepción no capturada → HTTP 500.
+     * Última red de seguridad. Evita exponer stack traces al cliente.
+     *
+     * En un sistema real, aquí se loguearía el stack trace completo
+     * internamente (con un logger), pero al cliente solo se le devuelve
+     * un mensaje genérico por seguridad.
+     */
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Map<String, Object>> handleGenericException(Exception ex) {
+        return buildResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "Error interno del servidor. Contacte al administrador."
+        );
+    }
+
+    /**
+     * Método auxiliar que construye la respuesta estándar de error.
+     * Centraliza el formato para que todos los errores se vean igual.
+     */
+    private ResponseEntity<Map<String, Object>> buildResponse(HttpStatus status, String message) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("timestamp", LocalDateTime.now());
+        body.put("status", status.value());
+        body.put("error", status.getReasonPhrase());
+        body.put("message", message);
+        return ResponseEntity.status(status).body(body);
+    }
+}
