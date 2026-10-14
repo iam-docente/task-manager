@@ -30,7 +30,7 @@ RUN mvn clean package -DskipTests -B
 # ============================================================
 # Usamos JRE (no JDK) sobre Alpine (distribución minimalista).
 # Tamaño: ~180 MB vs. ~600 MB de la imagen con Maven.
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 
 WORKDIR /app
 
