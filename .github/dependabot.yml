@@ -1,0 +1,53 @@
+# ============================================================
+# .github/dependabot.yml
+# Configuración de Dependabot: bot que revisa dependencias
+# automáticamente y crea Pull Requests con actualizaciones.
+# ============================================================
+
+version: 2
+updates:
+
+  # ----------------------------------------------------------
+  # Dependencias de Maven (pom.xml)
+  # ----------------------------------------------------------
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Santiago"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "security"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+  # ----------------------------------------------------------
+  # Imágenes de Docker (Dockerfile)
+  # ----------------------------------------------------------
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Santiago"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # ----------------------------------------------------------
+  # GitHub Actions (workflows)
+  # ----------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ci"

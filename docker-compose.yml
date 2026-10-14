@@ -1,0 +1,90 @@
+# ============================================================
+# docker-compose.yml
+# Orquesta los servicios de Task Manager: app + PostgreSQL
+#
+# Uso:
+#   docker compose up -d          # Levantar todo en background
+#   docker compose ps             # Ver estado de los servicios
+#   docker compose logs -f app    # Ver logs de la app en vivo
+#   docker compose down           # Detener y eliminar contenedores
+#   docker compose down -v        # También elimina volúmenes (borra datos)
+# ============================================================
+
+services:
+
+  # ============================================================
+  # Servicio: app (Task Manager API)
+  # ============================================================
+  app:
+    build: .
+    container_name: task-manager-app
+    ports:
+      - "8088:8088"
+    environment:
+      # Activa el perfil "docker" → usa application-docker.properties
+      SPRING_PROFILES_ACTIVE: docker
+
+      # Credenciales de BD (sobrescriben los defaults del archivo)
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: taskdb
+      DB_USER: user
+      DB_PASSWORD: password
+    depends_on:
+      db:
+        # Espera a que PostgreSQL esté REALMENTE listo (no solo iniciado).
+        # Sin esto, la app fallaría con "connection refused".
+        condition: service_healthy
+    networks:
+      - task-network
+    # Si el contenedor se cae, Docker lo reinicia automáticamente.
+    # "unless-stopped" = no reiniciar si lo detuvimos manualmente.
+    restart: unless-stopped
+
+  # ============================================================
+  # Servicio: db (PostgreSQL 16)
+  # ============================================================
+  db:
+    image: postgres:16-alpine
+    container_name: task-manager-db
+    environment:
+      POSTGRES_DB: taskdb
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    ports:
+      # Expone el puerto al host para poder conectarse con herramientas
+      # como DBeaver, pgAdmin o psql. En producción NO se expone.
+      - "5432:5432"
+    volumes:
+      # Volumen nombrado: los datos SOBREVIVEN a "docker compose down".
+      # Solo se borran con "docker compose down -v".
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - task-network
+    healthcheck:
+      # pg_isready es una herramienta oficial de PostgreSQL que verifica
+      # si el servidor acepta conexiones.
+      test: ["CMD-SHELL", "pg_isready -U user -d taskdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+# ============================================================
+# Volúmenes nombrados
+# ============================================================
+volumes:
+  db-data:
+    # Docker gestiona el almacenamiento. Persiste entre reinicios.
+    # Ubicación física: /var/lib/docker/volumes/<proyecto>_db-data/
+
+# ============================================================
+# Redes internas
+# ============================================================
+networks:
+  task-network:
+    driver: bridge
+    # Red bridge privada: los servicios se ven entre sí por nombre
+    # (app puede hacer "ping db" y funciona). No hay acceso desde fuera
+    # salvo por los puertos explícitamente mapeados.

@@ -1,0 +1,188 @@
+# ============================================================
+# .github/workflows/ci-cd.yml
+# Pipeline CI/CD para Task Manager API
+#
+# Etapas:
+#   1. test      → Ejecuta pruebas unitarias y genera cobertura
+#   2. security  → Análisis estático con SonarQube
+#   3. build     → Construye la imagen Docker
+#   4. deploy    → Despliegue automático con Docker Compose
+#
+# El pipeline se bloquea si CUALQUIER etapa falla.
+# ============================================================
+
+name: CI/CD Pipeline - Task Manager
+
+# ------------------------------------------------------------
+# Eventos que disparan el pipeline
+# ------------------------------------------------------------
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+# ------------------------------------------------------------
+# Variables de entorno globales para todos los jobs
+# ------------------------------------------------------------
+env:
+  JAVA_VERSION: '17'
+  IMAGE_NAME: task-manager
+
+jobs:
+
+  # ==========================================================
+  # JOB 1: TEST (IE2 - Pruebas automatizadas)
+  # ==========================================================
+  test:
+    name: 🧪 Tests y Cobertura
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Ejecutar pruebas unitarias
+        run: mvn clean test
+
+      - name: Generar reporte de cobertura JaCoCo
+        run: mvn jacoco:report
+
+      - name: Subir reporte como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco/
+          retention-days: 7
+
+  # ==========================================================
+  # JOB 2: SECURITY (IE3 - Seguridad y gobernanza)
+  # ==========================================================
+  security:
+    name: 🔒 Análisis de Seguridad y Calidad
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+        with:
+          # Necesario para que Sonar vea el historial completo de commits
+          fetch-depth: 0
+
+      - name: Configurar JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Ejecutar tests (necesario para JaCoCo)
+        run: mvn clean test
+
+      - name: Análisis con SonarQube (SonarCloud)
+        # Se ejecuta solo si el secret SONAR_TOKEN está definido.
+        # Si no está, el pipeline continúa (útil para forks o demos sin Sonar).
+        if: ${{ secrets.SONAR_TOKEN != '' }}
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
+            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }} \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
+            -Dsonar.qualitygate.wait=true
+
+  # ==========================================================
+  # JOB 3: BUILD (IE1 - Contenedores)
+  # ==========================================================
+  build:
+    name: 🐳 Construcción de Imagen Docker
+    runs-on: ubuntu-latest
+    needs: [ test, security ]
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Construir imagen Docker
+        run: |
+          docker build \
+            -t ${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -t ${{ env.IMAGE_NAME }}:latest \
+            .
+
+      - name: Verificar que la imagen se construyó
+        run: docker images | grep ${{ env.IMAGE_NAME }}
+
+      - name: Guardar imagen como artefacto (comprimida)
+        run: docker save ${{ env.IMAGE_NAME }}:${{ github.sha }} | gzip > image.tar.gz
+
+      - name: Subir imagen como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: image.tar.gz
+          retention-days: 7
+
+  # ==========================================================
+  # JOB 4: DEPLOY (IE4 - Despliegue automático y trazable)
+  # ==========================================================
+  deploy:
+    name: 🚀 Despliegue Automático
+    runs-on: ubuntu-latest
+    needs: build
+    # Solo despliega en push a main (NO en PRs ni en develop)
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Descargar imagen como artefacto
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Cargar imagen Docker
+        run: docker load < image.tar.gz
+
+      - name: Desplegar con Docker Compose
+        run: |
+          # Etiquetamos la imagen para que docker-compose la encuentre
+          docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.IMAGE_NAME }}:latest
+          docker compose up -d
+          sleep 20
+
+      - name: Verificar despliegue (Health Check)
+        run: |
+          curl --fail --retry 5 --retry-delay 5 http://localhost:8080/actuator/health
+
+      - name: Probar endpoint de tareas
+        run: |
+          curl --fail http://localhost:8080/api/tasks
+
+      - name: Registrar trazabilidad del despliegue
+        run: |
+          echo "================================"
+          echo "  DESPLIEGUE EXITOSO"
+          echo "================================"
+          echo "Commit SHA:   ${{ github.sha }}"
+          echo "Autor:        ${{ github.actor }}"
+          echo "Repositorio:  ${{ github.repository }}"
+          echo "Rama:         ${{ github.ref_name }}"
+          echo "Workflow:     ${{ github.workflow }}"
+          echo "Run ID:       ${{ github.run_id }}"
+          echo "Fecha:        $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          echo "================================"
+
+      - name: Detener servicios (limpieza)
+        if: always()
+        run: docker compose down -v

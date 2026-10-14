@@ -1,0 +1,46 @@
+# ============================================================
+# .dockerignore
+# Evita enviar archivos innecesarios o sensibles al daemon Docker.
+# Acelera el build y reduce el tamaño de la imagen final.
+# ============================================================
+
+# Artefactos de compilación (se regeneran dentro del contenedor)
+target/
+
+# Control de versiones (no se necesita dentro de la imagen)
+.git/
+.gitignore
+
+# Configuración de GitHub Actions (no se usa en runtime)
+.github/
+
+# Documentación y archivos auxiliares
+README.md
+*.md
+
+# Configuración local del IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Variables de entorno y secretos (NUNCA deben ir a la imagen)
+.env
+.env.local
+*.env
+
+# Archivos de Docker Compose (se usan fuera del build)
+docker-compose.yml
+docker-compose.override.yml
+
+# Propiedades de Sonar (solo se usan en CI/CD, no en runtime)
+sonar-project.properties
